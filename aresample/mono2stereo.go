@@ -53,10 +53,10 @@ func PcmS16leMono2Stereo(pcm, npcm []byte) (err error) {
 		// 16bits le sample
 		v := (int16(pcm[i])) | (int16(pcm[i+1]) << 8)
 		// use float32, no need float64, slower than int64
-		//		PcmS16leMono2Stereo, loop=8000000, diff=2.188711601s
+		//		PcmS16leMono2Stereo_int64, loop=8000000, diff=2.188711601s
 		//  	PcmS16leMono2Stereo_float64, loop=8000000, diff=2.017123758s
-		//		PcmS16leMono2Stereo_float32, loop=8000000, diff=1.824079127s
-		v = int16(float32(v) * 0.7071067811865499)
+		//		PcmS16leMono2Stereo_float32, loop=8000000, diff=1.749901193s
+		v = int16(float32(v) * 0.7071)
 
 		// L
 		npcm[i*2] = byte(v)
