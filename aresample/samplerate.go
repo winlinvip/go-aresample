@@ -109,9 +109,10 @@ func (v *srResampler) Resample(pcm []byte) (npcm []byte, err error) {
 		}
 
 		// Duplicate current sample N times.
+		// TODO: FIXME: Insert reasonable value for the duplicated value introduce lots of nosie.
 		for k:=v.nbOutputSamples; k < outputSamples; k++ {
 			for j:=0; j<v.channels; j++ {
-				opcm = append(opcm, ipcm[i + j])
+				opcm = append(opcm, ipcm[i+j])
 			}
 			v.nbOutputSamples++
 		}
