@@ -166,7 +166,7 @@ func resample_channel(ipcm []int16, x []float32) (opcm []int16, err error) {
 		var xo []float64
 		x0,x3 := float32(xi[0]),float32(xi[3])
 		for j:=p; j<len(x); j++ {
-			if x[j] >= x0 && x[j] <= x3+1 {
+			if x[j] >= x0 && x[j] <= x3 {
 				xo = append(xo, float64(x[j]))
 			}
 		}
@@ -204,13 +204,12 @@ func resample_calc_x(ipcm []int16, ds,isr,osr int) (nbM,nbP,nds int, x []float32
 	nbP = int(nbN) - int(nbN)%2
 
 	step := float32(nbM) / float32(nbP)
-	for i:=float32(0.0); i<float32(nbM); i+=step {
+	for i:=float32(0.0); i<=float32(nbM-1); i+=step {
 		x = append(x, i)
 	}
 
 	nbP = len(x)
 	nds = nbM - nbP*isr/osr
-fmt.Println(fmt.Sprintf("ds=%v, m=%v, p=%v, nds=%v", ds, nbM, nbP, nds))
 	return
 }
 
