@@ -78,5 +78,5 @@ func ExamplePcmS16leResampler() {
 
 	// Output:
 	// 16KHZ PCM: 106
-	// 32KHZ NPCM: 212
+	// 32KHZ NPCM: 210
 }
