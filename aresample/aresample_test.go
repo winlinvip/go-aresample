@@ -470,7 +470,7 @@ func TestPcmS16leResample_MonoFFMPEG(t *testing.T) {
 		if err != nil {
 			t.Error("invalid pcm, err is", err)
 		}
-		if len(npcm) != 2*(8) {
+		if len(npcm) != 2*(8-1) {
 			t.Error("invalid pcm", len(npcm), npcm)
 		} else {
 			if v := int16(npcm[2])|(int16(npcm[3])<<8); v != (3391-36) {
@@ -482,8 +482,10 @@ func TestPcmS16leResample_MonoFFMPEG(t *testing.T) {
 			if v := int16(npcm[10])|(int16(npcm[11])<<8); v != (4345-3) {
 				t.Error("invalid v", v, npcm)
 			}
-			if v := int16(npcm[14])|(int16(npcm[15])<<8); v != (5642-43) {
-				t.Error("invalid v", v, npcm)
+			if len(npcm) >= 16{
+				if v := int16(npcm[14])|(int16(npcm[15])<<8); v != (5642-43) {
+					t.Error("invalid v", v, npcm)
+				}
 			}
 		}
 	})
