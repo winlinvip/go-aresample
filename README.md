@@ -6,6 +6,7 @@ The audio resample library.
 
 The examples:
 
-* [ExamplePcmS16leMono2Stereo](aresample/aresample_test.go), resample mono to stereo pcm.
+* [ExamplePcmS16leMono2Stereo](aresample/example_test.go), resample mono to stereo pcm.
+* [ExamplePcmS16leResampler](aresample/example_test.go), resample the sample rate.
 
 Winlin 2016
