@@ -275,10 +275,12 @@ func spline_z2(m2,h2,x2,x3,y2,y3,x float64) float64 {
 	return v0+v1+v2+v3
 }
 
+// Calculate M1 form matrix.
 func spline_m1(c1,c2,u1,l2 float64) float64 {
 	return (c1/u1 - c2/2) / (2/u1 - l2/2)
 }
 
+// Calculate M2 form matrix.
 func spline_m2(c1,c2,u1,l2 float64) float64 {
 	return (c1/2 - c2/l2) / (u1/2 - 2/l2)
 }
