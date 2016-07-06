@@ -35,23 +35,21 @@ type ResampleSampleRate interface {
 
 // sample rate resampler.
 type srResampler struct {
-	channels        int    // Channels, L or LR
-	sampleRate      int    // Transform from this sample rate.
-	nSampleRate     int    // Transform to this sample rate.
+	channels int     // Channels, L or LR
+	isr      int     // Transform from this sample rate.
+	osr      int     // Transform to this sample rate.
 
-	// Assume:
-	//		M is input samples,
-	//		isr is input sample rate,
-	//		N is output samples,
-	//		P is the actual output samples,
-	//		osr is output sample rate,
-	//		DS is the delta samples
-	// Then:
-	//		N = (M+DS)*osr/isr
-	//		P = int(N) - int(N)%2
-	//		DS = M - int(P*isr/osr)
-	// @remark Initialize the DS to 0
-	deltaSamples 	int // The delta samples of previous resample.
+					 // Always cache 16samples.
+	lcache   []int16 // For channel=0
+	rcache   []int16 // For channel=1
+
+					 // Total outputed samples.
+	lws      uint64  // For channel=0
+	rws      uint64  // For channel=1
+
+					 // Total consumed samples.
+	lcs      uint64  // For channel=0
+	rcs      uint64  // For channel=1
 }
 
 // Create resampler to transform pcm
@@ -70,8 +68,8 @@ func NewPcmS16leResampler(channels, sampleRate int, nSampleRate int) (ResampleSa
 
 	v := &srResampler{
 		channels: channels,
-		sampleRate: sampleRate,
-		nSampleRate: nSampleRate,
+		isr: sampleRate,
+		osr: nSampleRate,
 	}
 
 	return v,nil
@@ -85,7 +83,7 @@ func (v *srResampler) Resample(pcm []byte) (npcm []byte, err error) {
 		return nil,fmt.Errorf("invalid pcm, should mod(%v)", 2*v.channels)
 	}
 
-	if v.sampleRate == v.nSampleRate {
+	if v.isr == v.osr {
 		return pcm[:],nil
 	}
 
@@ -101,20 +99,37 @@ func (v *srResampler) Resample(pcm []byte) (npcm []byte, err error) {
 		return nil,fmt.Errorf("invalid pcm, L%v!=%v", len(ipcmLeft), len(ipcmRight))
 	}
 
+	// Insert the cache at the beginning.
+	if v.lcache != nil {
+		ipcmLeft = append(v.lcache, ipcmLeft...)
+		v.lcache = nil
+	}
+	if ipcmRight != nil && v.rcache != nil {
+		ipcmRight = append(v.rcache, ipcmRight...)
+		v.rcache = nil
+	}
+
 	// Resample all channels
-	ds := v.deltaSamples
-	_,_,nds,x := resample_calc_x(ipcmLeft,ds,v.sampleRate,v.nSampleRate)
+	var consumed int
 	var opcmLeft []int16
-	if opcmLeft,err = resample_channel(ipcmLeft, x); err != nil {
+	if opcmLeft,consumed,err = resample_channel(ipcmLeft,v.isr,v.osr,v.lws,v.lcs); err != nil {
 		return nil,err
 	}
-	v.deltaSamples = nds
+	v.lws += uint64(len(opcmLeft))
+	v.lcs += uint64(consumed)
+	if consumed < len(ipcmLeft) {
+		v.lcache = ipcmLeft[consumed:]
+	}
 
 	var opcmRight []int16
 	if ipcmRight != nil {
-		_,_,nds,x = resample_calc_x(ipcmRight,ds,v.sampleRate,v.nSampleRate)
-		if opcmRight,err = resample_channel(ipcmLeft, x); err != nil {
+		if opcmRight,consumed,err = resample_channel(ipcmRight,v.isr,v.osr,v.rws,v.rcs); err != nil {
 			return nil,err
+		}
+		v.rws += uint64(len(opcmRight))
+		v.rcs += uint64(consumed)
+		if consumed < len(ipcmRight) {
+			v.rcache = ipcmRight[consumed:]
 		}
 	}
 
@@ -142,74 +157,39 @@ func resample_merge(left,right []int16) (npcm []byte) {
 }
 
 // x is the position of output pcm
-func resample_channel(ipcm []int16, x []float32) (opcm []int16, err error) {
-	xi := make([]float64, 4)
-	yi := make([]float64, 4)
+func resample_channel(ipcm []int16, isr,osr int, written,org uint64) (opcm []int16, consumed int, err error) {
+	if len(ipcm) <= 16 {
+		return nil,0,nil
+	}
 
-	var p int
-	for i:=0; i<len(ipcm); i+= 3 {
-		// Complete when left only 1byte
-		if i + 1 == len(ipcm) {
-			break
-		}
+	// The samples we can use to resample
+	available := len(ipcm) - 16
+	// The resample step between new samples
+	step := float64(isr)/float64(osr)
+	// The first position to sample
+	x0 := step*float64(written)
 
-		// Skip back to always use 4samples as input.
-		if i + 3 >= len(ipcm) {
-			i = len(ipcm) - 4
-		}
+	// The position for the last sample.
+	last := org + uint64(available)
 
-		for j:=0; j<4; j++ {
-			xi[j] = float64(i+j)
-			yi[j] = float64(ipcm[i+j])
-		}
-
-		var xo []float64
-		x0,x3 := float32(xi[0]),float32(xi[3])
-		for j:=p; j<len(x); j++ {
-			if x[j] >= x0 && x[j] <= x3 {
-				xo = append(xo, float64(x[j]))
-			}
-		}
-		p += len(xo)
-
-		// Completed for this block
-		if len(xo) == 0 {
-			continue
-		}
-
-		yo := make([]float64, len(xo))
+	// Resample each position from x0
+	for x:=x0; x < float64(last); x+=step {
+		// Generate xi,yi,xo,yo
+		xi0 := float64(uint64(x))
+		xi := []float64{xi0, xi0+1, xi0+2, xi0+3}
+		yi0 := int(uint64(xi0)-org)
+		yi := []float64{float64(ipcm[yi0]),float64(ipcm[yi0+1]),float64(ipcm[yi0+2]),float64(ipcm[yi0+3])}
+		xo := []float64{x}
+		yo := []float64{0.0}
 		if err = spline(xi,yi,xo,yo); err != nil {
-			return nil,err
+			return
 		}
 
-		for _,v := range yo {
-			opcm = append(opcm, int16(v))
-		}
+		// convert yo
+		opcm = append(opcm, int16(yo[0]))
+		consumed = int(uint64(x)-org) + 1
 	}
 
-	if len(x) != len(opcm) {
-		return nil,fmt.Errorf("invalid yo=%v, x=%v", opcm, len(x)*2)
-	}
-
-	return
-}
-
-// nbM is M, the input samples.
-// nbP is P, the actual output samples.
-// nds is DS, the updated DS.
-// x is the x positions of new samples.
-func resample_calc_x(ipcm []int16, ds,isr,osr int) (nbM,nbP,nds int, x []float32) {
-	nbM = len(ipcm)
-	nbN := (nbM + ds) * osr / isr
-	nbP = int(nbN) - int(nbN)%2
-
-	step := float32(nbM) / float32(nbP)
-	for i:=float32(0.0); i<=float32(nbM-1); i+=step {
-		x = append(x, i)
-	}
-
-	nbP = len(x)
-	nds = nbM - nbP*isr/osr
 	return
 }
 
